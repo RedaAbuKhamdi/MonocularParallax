@@ -1,7 +1,9 @@
 import numpy as np
+import seaborn as sns
 
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
+from skimage import io
 
 class Cylinder:
     def __init__(
@@ -25,11 +27,11 @@ class Cylinder:
         Sets self.points to a numpy array of shape (number_of_pts, 3) with random points on the cylinder.
         """
         self.points: np.ndarray = np.zeros((self.number_of_pts, 3))
-        step = 2 * self.radius / (self.number_of_pts + 1)
+        step = 2 * np.pi / self.number_of_pts
         for i in range(self.number_of_pts):
-            x: float = np.random.uniform(-self.radius + step * i, -self.radius + step * (i + 1))
+            x: float = self.radius * np.sin(i * step)
             z: float = np.random.uniform(-self.height / 2 , self.height / 2 )
-            y: float = np.random.choice(np.array([-1, 1])) * np.sqrt(self.radius ** 2 - x ** 2)
+            y: float = self.radius * np.cos(i * step)
             self.points[i, 0] = x
             self.points[i, 1] = y
             self.points[i, 2] = z
@@ -66,23 +68,55 @@ class Cylinder:
             self.rotate()
             frames.append(frame)
         return np.array(frames)
-    def visualize(self, images : np.ndarray, save = False):
+    def save_image(self, images : np.ndarray):
+        sides_size = np.ceil((np.max(images) - np.min(images)) * 1.2)
+        result = np.zeros((images.shape[0], 1000, 1000), dtype=np.uint8)
+        for i in range(images.shape[0]):
+            adjustet_points = self.shift_coordinate_system(np.array([-sides_size / 2, sides_size / 2]), images[i])
+            for j in range(adjustet_points.shape[0]):
+                result[i, np.round(adjustet_points[j, 1] * 100).astype(np.int16), np.round(adjustet_points[j, 0] * 100).astype(np.int16)] = 254
+        io.imsave("cylinder.tiff", result)
+    def visualize(self, images : np.ndarray):
         fig, ax = plt.subplots()
         fig.set_label("Cylinder")
         x_limit = (self.radius) * 1.2
         y_limit = (self.height / 2) * 1.2
         ax.set_facecolor('black' if self.invert else 'white')
         def update(n):
-            ax.clear()
+            ax.cla()
             ax.set_xlim(-x_limit, x_limit)
             ax.set_ylim(-y_limit, y_limit)
-            plt.margins(0,0)
-            return ax.scatter(images[n, :, 0], images[n, :, 1], color='white' if self.invert else 'black', s = 0.02)
+            im =  sns.scatterplot(
+                x = images[n, :, 0], 
+                y = images[n, :, 1],
+                legend = False,
+                s = 0.2,
+                color = "white" if self.invert else "black")
+            im.set(xticklabels = [], yticklabels = [])
+            im.tick_params(bottom=False, left = False)
+            return im
         update(0)
-        ani = animation.FuncAnimation(fig=fig, func=update, frames=images.shape[0] - 1, interval=150)
+        ani = animation.FuncAnimation(fig=fig, func=update, frames=images.shape[0] - 1, interval=40)
         plt.show()
-        if save:
-            pass
+
+    def calculate_angle(self, point1, point2, center):
+        vector1 = point1 - center
+        vector2 = point2 - center
+        return np.arccos(np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2)))
+    def calculate_wurf(self, points, index : int, start : int = 0):
+        center = np.array([0, 0])
+        sin_alpha = np.sin(self.calculate_angle(points[start][index], points[start - 1][index], center))
+        sin_beta = np.sin(self.calculate_angle(points[start - 1][index], points[start - 2][index], center))
+        sin_gamma = np.sin(self.calculate_angle(points[start - 2][index], points[start - 3][index], center))
+        return float(sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta))
+
+    def avg_wurf(self, points):
+        wurf_mean = np.zeros(len(points))
+        for i in range(len(points)):
+            for j in range(3):
+                wurf_mean[i] += self.calculate_wurf(points, j, i)
+            wurf_mean[i] /= 3
+        return np.mean(wurf_mean)
         
 
 
