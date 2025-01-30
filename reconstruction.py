@@ -7,7 +7,7 @@ from skimage import io
 from skimage.measure import EllipseModel
 from scipy import ndimage
 
-EPSILON = 1e-2
+EPSILON = 1e-3
 CENTER_SEARCH_EPSILON = 1e-6
 CONTRASTING_POINTS = 3
 
@@ -35,14 +35,15 @@ class InverseCylinder:
 
     def find_points_for_center(self, center : np.ndarray, frames : np.ndarray):
         best_points = None
+        best_val = np.inf
         for i in InverseCylinder.sort_by_distance(center, frames[0]):
             for j in InverseCylinder.sort_by_distance(center, frames[1]):
                 for k in InverseCylinder.sort_by_distance(center, frames[2]):
                     for l in InverseCylinder.sort_by_distance(center, frames[3]):
                         wurf = self.calculate_angle_wurf(frames[0][i], frames[1][j], frames[2][k], frames[3][l], center)
-                        if np.abs(wurf - 1/3) < CENTER_SEARCH_EPSILON:
+                        if np.abs(wurf - 1/3) < min(EPSILON, best_val):
                             best_points = np.array([frames[0][i], frames[1][j], frames[2][k], frames[3][l]])
-                            return best_points
+                            best_val = np.abs(wurf - 1/3)
         return best_points
 
     def sort_by_distance(center : np.ndarray, points : np.ndarray):
@@ -68,14 +69,14 @@ class InverseCylinder:
         
         for i in range(4, self.images.shape[0]):
             found_point = False
+            min_val = np.inf
             for j in range(self.points[i].shape[0]):
                 wurf = self.calculate_angle_wurf(trajectory[i-3], trajectory[i-2], trajectory[i-1], self.points[i][j], center)
-                print(wurf, j)
-                if np.abs(wurf - 1/3) < EPSILON:
+                if np.abs(wurf - 1/3) < min(EPSILON, min_val):
                     print(i)
                     trajectory[i] = self.points[i][j]
                     found_point = True
-                    break
+                    min_val = np.abs(wurf - 1/3)
             if not found_point:
                 raise Exception("No point was found for trajectory!")
         return trajectory

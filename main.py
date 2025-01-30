@@ -5,7 +5,7 @@ from reconstruction import InverseCylinder
 
 
 if __name__ == "__main__":
-    cylinder = Cylinder(4, 10, number_of_pts=40, frames_per_revolution=300, revolutions=2, invert=True)
+    cylinder = Cylinder(4, 10, number_of_pts=20, frames_per_revolution=200, revolutions=2, invert=True)
     images = cylinder.create_image(5, 5)
     cylinder.visualize(images)
     cylinder.save_image(images)

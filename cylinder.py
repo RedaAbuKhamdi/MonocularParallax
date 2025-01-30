@@ -5,6 +5,9 @@ from matplotlib import pyplot as plt
 import matplotlib.animation as animation
 from skimage import io
 
+FRAME_WIDTH = 1000
+FRAME_HEIGHT = 1000
+
 class Cylinder:
     def __init__(
             self, 
@@ -27,7 +30,7 @@ class Cylinder:
         Sets self.points to a numpy array of shape (number_of_pts, 3) with random points on the cylinder.
         """
         self.points: np.ndarray = np.zeros((self.number_of_pts, 3))
-        step = 2 * np.pi / self.number_of_pts
+        step = 4 * np.pi / self.number_of_pts
         for i in range(self.number_of_pts):
             x: float = self.radius * np.sin(i * step)
             z: float = np.random.uniform(-self.height / 2 , self.height / 2 )
@@ -61,6 +64,7 @@ class Cylinder:
         self.points = np.dot(self.points, rotation_matrix)
 
     def create_image(self, focal_length : float, distance_from_camera : float) -> np.ndarray:
+
         center_point = np.array([focal_length + distance_from_camera, 0, 0])
         frames = []
         for i in range(self.revolutions * self.frames_per_revolution):
@@ -70,11 +74,12 @@ class Cylinder:
         return np.array(frames)
     def save_image(self, images : np.ndarray):
         sides_size = np.ceil((np.max(images) - np.min(images)) * 1.2)
-        result = np.zeros((images.shape[0], 1000, 1000), dtype=np.uint8)
+        factor = 100
+        result = np.zeros((images.shape[0], FRAME_WIDTH, FRAME_HEIGHT), dtype=np.uint8)
         for i in range(images.shape[0]):
             adjustet_points = self.shift_coordinate_system(np.array([-sides_size / 2, sides_size / 2]), images[i])
             for j in range(adjustet_points.shape[0]):
-                result[i, np.round(adjustet_points[j, 1] * 100).astype(np.int16), np.round(adjustet_points[j, 0] * 100).astype(np.int16)] = 254
+                result[i, np.round(adjustet_points[j, 1] * factor).astype(np.int16), np.round(adjustet_points[j, 0] * factor).astype(np.int16)] = 254
         io.imsave("cylinder.tiff", result)
     def visualize(self, images : np.ndarray):
         fig, ax = plt.subplots()
