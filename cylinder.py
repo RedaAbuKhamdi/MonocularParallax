@@ -81,6 +81,8 @@ class Cylinder:
             for j in range(adjustet_points.shape[0]):
                 result[i, np.round(adjustet_points[j, 1] * factor).astype(np.int16), np.round(adjustet_points[j, 0] * factor).astype(np.int16)] = 254
         io.imsave("cylinder.tiff", result)
+        for i in range(images.shape[0]):
+            io.imsave(f"./frames/cylinder{i}.png", result[i])
     def visualize(self, images : np.ndarray):
         fig, ax = plt.subplots()
         fig.set_label("Cylinder")

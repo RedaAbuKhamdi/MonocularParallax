@@ -6,6 +6,9 @@ import re
 from skimage import io
 from skimage.measure import EllipseModel
 from scipy import ndimage
+from numba import jit, prange
+import traceback
+from tqdm import tqdm
 
 EPSILON = 1e-3
 CENTER_SEARCH_EPSILON = 1e-6
@@ -16,11 +19,53 @@ def atoi(text):
 
 def natural_keys(text):
     return [ atoi(c) for c in re.split(r'(\d+)', text) ]
-
+@jit(fastmath = True)
+def calculate_angle(points1, points2, center):
+    vectors1 = points1 - center
+    vectors2 = points2 - center
+    return np.arccos(np.sum(vectors1 * vectors2, axis=1) / (
+        np.sqrt(np.sum(vectors1 * vectors1, axis=1)) * np.sqrt(np.sum(vectors2 * vectors2, axis=1))))
+@jit(fastmath = True)
+def calculate_angle_wurf(p1 : np.ndarray, p2 : np.ndarray, p3 : np.ndarray, p4 : np.ndarray, center : np.ndarray):
+    sin_alpha = np.sin(calculate_angle(p1, p2, center))
+    sin_beta = np.sin(calculate_angle(p2, p3, center))
+    sin_gamma = np.sin(calculate_angle(p3, p4, center))
+    res = sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta)
+    np.nan_to_num(res, False)
+    return res
+@jit(fastmath = True, parallel = True)
+def search_wurf(pt_i : np.ndarray, pt_j : np.ndarray, frames : np.ndarray, center : np.ndarray):
+    results = np.zeros((frames[2].shape[0], frames[3].shape[0]))
+    for k in prange(frames[2].shape[0]):
+        pt_k = np.repeat(np.copy(frames[2][k]).reshape(1, 2), repeats = frames[3].shape[0])
+        results[k] = calculate_angle_wurf(pt_i, pt_j, pt_k, frames[3], center)
+    return results
+def find_points_for_center(center : np.ndarray, frames : np.ndarray):
+        best_points = np.zeros((4, 2))
+        best_val = np.inf
+        center = np.tile(center, (frames[3].shape[0], 1))
+        for i in tqdm(range(frames[0].shape[0])):
+            pt_i = np.tile(frames[0][i], (frames[3].shape[0], 1))
+            for j in tqdm(range(frames[1].shape[0])):
+                pt_j = np.tile(frames[1][j], (frames[3].shape[0], 1))
+                vals = search_wurf(pt_i, pt_j, frames, center)
+                min_val = np.argmin(vals)
+                if np.abs(vals[min_val] - 1/3) < min(EPSILON, best_val):
+                    print(vals[min_val], i, j, min_val)
+                    best_points[0] = frames[0][i]
+                    best_points[1] = frames[1][j]
+                    best_points[2] = frames[2][min_val[0]]
+                    best_points[3] = frames[3][min_val[1]]
+                    best_val = np.abs(vals[min_val] - 1/3)
+        return best_points, best_val
 class InverseCylinder:
     def __init__(self, inverse : bool = True):
         self.inverse = inverse
-        self.images = io.imread("cylinder.tiff").astype(np.float16)
+        self.images = []
+        for image in listdir("./inputFrames"):
+            if isfile(join("./inputFrames", image)):
+                self.images.append(io.imread("./inputFrames/" + image))
+        self.images = np.array(self.images)
         self.extract_points()
         self.chosen_points = None
         self.points = None
@@ -29,35 +74,18 @@ class InverseCylinder:
         print(self.images.shape)
         images = self.images.copy()
         for i in range(self.images.shape[0]):
-            cylinder_points = np.argwhere(images[i] > 0 if self.inverse else images[i] == 0)
+            cylinder_points = np.argwhere(images[i] > 0 if self.inverse else images[i] == 0).astype(np.float32)
             self.points.append(cylinder_points)
+            print(cylinder_points.shape)
         print("Number of points extracted: {}".format(len(self.points)))
-
-    def find_points_for_center(self, center : np.ndarray, frames : np.ndarray):
-        best_points = None
-        best_val = np.inf
-        for i in InverseCylinder.sort_by_distance(center, frames[0]):
-            for j in InverseCylinder.sort_by_distance(center, frames[1]):
-                for k in InverseCylinder.sort_by_distance(center, frames[2]):
-                    for l in InverseCylinder.sort_by_distance(center, frames[3]):
-                        wurf = self.calculate_angle_wurf(frames[0][i], frames[1][j], frames[2][k], frames[3][l], center)
-                        if np.abs(wurf - 1/3) < min(EPSILON, best_val):
-                            best_points = np.array([frames[0][i], frames[1][j], frames[2][k], frames[3][l]])
-                            best_val = np.abs(wurf - 1/3)
-        return best_points
-
-    def sort_by_distance(center : np.ndarray, points : np.ndarray):
-        distances = np.full(points.shape[0], np.inf)
-        for i, point in enumerate(points):
-            distances[i] = np.linalg.norm(point - center)
-        return np.argsort(distances)
         
 
     def track_point(self, center : np.ndarray):
         if self.points is None:
             raise Exception("No extracted points! Run extract_points() first.")
         trajectory = np.zeros((self.images.shape[0], 2), dtype=np.int32)
-        first_points = self.find_points_for_center(center, self.points)
+        first_points, best_val = find_points_for_center(center, self.points)
+        print("Best val: {}".format(best_val))
 
         if first_points is None:
             raise Exception("No points found!")
@@ -73,12 +101,14 @@ class InverseCylinder:
             for j in range(self.points[i].shape[0]):
                 wurf = self.calculate_angle_wurf(trajectory[i-3], trajectory[i-2], trajectory[i-1], self.points[i][j], center)
                 if np.abs(wurf - 1/3) < min(EPSILON, min_val):
-                    print(i)
                     trajectory[i] = self.points[i][j]
                     found_point = True
                     min_val = np.abs(wurf - 1/3)
+                    print(wurf, i)
             if not found_point:
                 raise Exception("No point was found for trajectory!")
+        
+        np.save("./trajectory.npy", trajectory)
         return trajectory
 
     def calculate_contrasting_points(self, n: int):
@@ -87,7 +117,7 @@ class InverseCylinder:
             raise Exception("No extracted points! Run extract_points() first.")
         step = 1
         x = self.images[0].shape[0] // 2 
-        y = step
+        y = self.images[0].shape[1] // 2 
         print("x = {}, y = {}".format(x, y))
         for i in range(n):
             point_found = False
@@ -97,11 +127,10 @@ class InverseCylinder:
                         self.track_point(np.array([x, y]))
                     )
                     point_found = True
-                except: 
-                    pass
+                except Exception as e: 
+                    print(e)
+                    print(traceback.format_exc())
                 finally:
-                    y += step
-                if x >= self.images[0].shape[0] or y >= self.images[0].shape[1]:
                     raise Exception("No points found!")
                 print("x = {}, y = {}".format(x, y))
         return chosen_points
@@ -122,14 +151,6 @@ class InverseCylinder:
         sin_beta = np.sin(self.calculate_angle(point2, point3, center))
         sin_gamma = np.sin(self.calculate_angle(point3, point4, center))
         return float(sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta))
-
-    def avg_wurf(self):
-        wurf_mean = np.zeros(len(self.points))
-        for i in range(len(self.points)):
-            for j in range(3):
-                wurf_mean[i] += self.calculate_wurf(j, i)
-            wurf_mean[i] /= 3
-        return np.mean(wurf_mean)
 
     def calculate_speed(self):
         wurf_mean = 0
