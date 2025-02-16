@@ -1,6 +1,7 @@
 import sys
 from cylinder import Cylinder
 from reconstruction import InverseCylinder
+import re
 
 
 
@@ -14,7 +15,6 @@ if __name__ == "__main__":
     elif "inverse" in args:
         inverse = InverseCylinder()
         inverse.extract_points()
-        inverse.visualize()
-        print(inverse.avg_wurf())
+        inverse.visualize_by_input()
     else: 
         print("Usage: python main.py [direct|inverse]")
