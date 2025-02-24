@@ -8,8 +8,12 @@ from skimage import io
 from scipy import ndimage
 from numba import jit, prange
 from tqdm import tqdm
-SEARCH_LENGTH = 10
-EPSILON = 1e-3
+from skimage.measure import EllipseModel
+import traceback
+
+SEARCH_LENGTH = 25
+SEARCH_LENGTH_MIN = 5      
+EPSILON = 1e-4
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -82,26 +86,27 @@ class InverseCylinder:
             raise Exception("No extracted points! Run extract_points() first.")
         if os.path.isfile("./trajectories/trajectory{}.npy".format(index)):
             return np.load("./trajectories/trajectory{}.npy".format(index))
-        trajectory = np.zeros((self.images.shape[0], 2), dtype=np.int32)
+        trajectory = np.zeros((self.images.shape[0], 2), dtype=np.float32)
         first_points, indicies = find_points_for_given_point(center, self.points, index)
         indicies = list(indicies)
         if first_points is None:
+            print("No points found for index {}".format(index))
             raise Exception("No points found!")
 
         trajectory[0] = first_points[0]
         trajectory[1] = first_points[1]
         trajectory[2] = first_points[2]
         trajectory[3] = first_points[3]
-        
+        min_val = np.inf
         for i in range(4, self.images.shape[0]):
             found_point = False
-            min_val = np.inf
             indicies.append(None)
             for j in np.nonzero(
                     np.sum(((self.points[i] - trajectory[i-1])**2), axis=1) < (SEARCH_LENGTH * SEARCH_LENGTH)
                 )[0]:
-                wurf = calculate_angle_wurf(trajectory[i-3], trajectory[i-2], trajectory[i-1], self.points[i][j], center)
+                wurf = self.calculate_angle_wurf(trajectory[i-3], trajectory[i-2], trajectory[i-1], self.points[i][j], center)
                 if np.abs(wurf - 1/3) < min(EPSILON, min_val):
+                    print(np.abs(wurf - 1/3))
                     trajectory[i] = self.points[i][j]
                     found_point = True
                     min_val = np.abs(wurf - 1/3)
@@ -116,6 +121,11 @@ class InverseCylinder:
             self.points[i][index][1] = 0
         return trajectory
 
+    def calculate_angle_wurf(self, p1 : np.ndarray, p2 : np.ndarray, p3 : np.ndarray, p4 : np.ndarray, center : np.ndarray):
+        sin_alpha = np.sin(calculate_angle(p1, p2, center))
+        sin_beta = np.sin(calculate_angle(p2, p3, center))
+        sin_gamma = np.sin(calculate_angle(p3, p4, center))
+        return 0 if ((sin_alpha + sin_beta + sin_gamma) * sin_beta) == 0 else float(sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta))
     def calculate_contrasting_points(self):
         chosen_points = []
 
@@ -132,7 +142,7 @@ class InverseCylinder:
                     self.points[i][index][0] = 0
                     self.points[i][index][1] = 0
 
-        for i in range(self.points[0].shape[0]):
+        for i in tqdm(range(self.points[0].shape[0])):
             if self.points[0][i][0] == 0 and self.points[0][i][1] == 0:
                 #print("already have {}".format(i))
                 continue
@@ -145,6 +155,58 @@ class InverseCylinder:
             except Exception as e:  
                 #print("No point found for {}".format(self.points[0][i]))
                 pass
+        return chosen_points
+
+    def calculate_ellise_tracks(self, track : np.ndarray, index : int):
+        point = track[index - 1]
+        best_model = None
+        center_distance = np.inf
+        center_x = self.images[0].shape[0] // 2 
+        if index >= 5:
+            model = EllipseModel()
+            try:
+                success = model.estimate(track)
+                if success and np.sum(np.abs(model.residuals(track))) < 1:
+                    return model
+                else:
+                    return None
+            except:
+                # print(track)
+                # print(traceback.format_exc())
+                return None
+        distances = np.sum(((self.points[index] - point)**2), axis=1)
+        for i in np.nonzero(
+                    np.logical_and(distances > (SEARCH_LENGTH_MIN * SEARCH_LENGTH_MIN), distances < (SEARCH_LENGTH * SEARCH_LENGTH))
+                )[0]:
+            track[index] = self.points[index][i]
+            model = self.calculate_ellise_tracks(track, index + 1)
+            if model:
+                xc = model.params[0]
+                if np.abs(xc - center_x) < min(50, center_distance) and 0 <= model.params[4] < 0.2:
+                    center_distance = np.abs(xc - center_x)
+                    print(center_distance)
+                    best_model = model
+        return best_model
+
+
+    def calculate_contrasting_points_ellipse(self):
+        chosen_points = []
+
+        if self.points is None:
+            raise Exception("No extracted points! Run extract_points() first.")
+
+        for i in tqdm(range(self.points[0].shape[0])):
+            track = np.zeros((5, 2))
+            track[0] = self.points[0][i]
+            model = self.calculate_ellise_tracks(track, 1)
+            if model:
+                chosen_points.append(track)
+                print(model.params)
+                preds = model.predict_xy(np.linspace(0, 2 * np.pi, 15))
+                plt.scatter(preds[:, 0], preds[:, 1], color="red")
+                plt.scatter(track[:, 0], track[:, 1], color="blue")
+                plt.show()
+
         return chosen_points
 
     def calculate_angle(self, point1, point2, center):
@@ -169,7 +231,7 @@ class InverseCylinder:
             choice = input("Type one of the following:\nA point number to show it's track\n\'all\' to show all tracks\n \'calculate\' to run point choice algorithm\nanything else to quit: ")
             if choice in available_points:
                 self.visualize(
-                    [np.load("./trajectories/trajectory{}.npy".format(choice))]
+                    [np.load("./trajectories/trajectory{}.npy".format(choice)).astype(np.int32)]
                 )
             elif choice == "all":
                 chosen_points = []
@@ -178,10 +240,15 @@ class InverseCylinder:
                         chosen_points.append(np.load("./trajectories/{}".format(file)))
                 self.visualize(chosen_points)
                 break
+            elif choice == "calculate":
+                self.chosen_points = self.calculate_contrasting_points()
+                self.visualize(self.chosen_points)
+                break
             else:
                 break
     def visualize(self, chosen_points = []):
         fig, ax = plt.subplots()
+        print(chosen_points)
         def update(n):
             ax.clear()
             ax.set_title("Frame {}".format(n))
@@ -199,4 +266,19 @@ class InverseCylinder:
         ani = animation.FuncAnimation(fig=fig, func=update, frames=self.images.shape[0], interval=1500)
         plt.show()
 
-        
+    def ellipse_try(self):
+        distance = 0
+        index = -1
+        track = np.zeros((len(self.points), 2))
+        for i in range(self.points[0].shape[0]):
+            pt_distance = np.sum(((self.points[0] - self.points[0][i])**2), axis=1) 
+            pt_index = np.argmax(pt_distance)
+            if pt_distance[pt_index] > distance:
+                distance = pt_distance[pt_index]
+                index = i
+        track[0] = self.points[0][index]
+        for i in range(1, len(self.points)):
+            pt_distance = np.sum(((self.points[i] - track[i - 1])**2), axis=1) 
+            pt_index = np.argmin(pt_distance)
+            track[i] = self.points[i][pt_index]
+        np.save("./trajectories/trajectory{}.npy".format(index), track)
