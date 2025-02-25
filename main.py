@@ -16,18 +16,11 @@ if __name__ == "__main__":
         cylinder.save_image(images) 
     elif "inverse" in args:
         inverse = InverseCylinder()
-        inverse.extract_points()
-        inverse.ellipse_try()
-        inverse.visualize_by_input()
-    elif "ellipse" in args:
+        inverse.track_by_proximity()
+    elif "vis":
         inverse = InverseCylinder()
-        inverse.extract_points()
-        tracks = np.load("./trajectories/trajectory90.npy")
-        model = EllipseModel()
-        model.estimate(tracks)
-        plt.scatter(tracks[:, 0], tracks[:, 1], color="blue")
-        preds = model.predict_xy(np.linspace(0, 2 * np.pi, 15))
-        plt.scatter(preds[:, 0], preds[:, 1], color="red")
-        plt.show()
+        inverse.visualize_tracks()
     else: 
+        inverse = InverseCylinder()
+        
         print("Usage: python main.py [direct|inverse]")
