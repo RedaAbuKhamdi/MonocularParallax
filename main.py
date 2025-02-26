@@ -16,11 +16,13 @@ if __name__ == "__main__":
         cylinder.save_image(images) 
     elif "inverse" in args:
         inverse = InverseCylinder()
-        inverse.track_by_proximity()
-    elif "vis":
+        inverse.calculate_contrasting_points()
+    elif "vis" in args:
         inverse = InverseCylinder()
         inverse.visualize_tracks()
     else: 
         inverse = InverseCylinder()
+        inverse.track_by_proximity()
+        inverse.visualize_tracks()
         
         print("Usage: python main.py [direct|inverse]")
