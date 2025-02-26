@@ -115,7 +115,7 @@ class InverseCylinder:
         A = np.zeros((5, 5))
         B = np.ones((5))
         for i in range(5):
-            pt = track[i+1]
+            pt = track[i * 2]
             A[i, 0] = pt[0]**2
             A[i, 1] = pt[1]**2
             A[i, 2] = pt[0]*pt[1]
@@ -260,13 +260,13 @@ class InverseCylinder:
 
     def visualize_track(self, track, result, model):
         fig, ax = plt.subplots()
-        x = np.linspace(400, 1500, 1000)
-        y = np.linspace(0, 1000, 1000)
+        x = np.linspace(400, 1500, 1500)
+        y = np.linspace(0, 1000, 1500)
         ellipse_pts = []
         for i in range(x.shape[0]):
             for j in range(y.shape[0]):
                 value = result[0] * x[i]**2 + result[1] * y[j]**2 + result[2] * x[i]*y[j] + result[3] * x[i]+ result[4] * y[j] - 1
-                if(abs(value) < 10e-3):
+                if(abs(value) < 10e-6):
                     ellipse_pts.append(np.array([x[i], y[j]]))
 
         ellipse_pts = np.array(ellipse_pts)
@@ -276,10 +276,10 @@ class InverseCylinder:
             ax.set_ylim(0, 1000)
             ax.set_title("Frame {}".format(n))
             cylinder_pts = self.points[n]
-            ax.scatter(track[:,0], track[:, 1], color = "red")
-            ax.scatter(cylinder_pts[:,0], cylinder_pts[:, 1], color = "blue")   
-            # if (len(ellipse_pts) > 0):
-            #     ax.scatter(ellipse_pts[:,0], ellipse_pts[:, 1], color = "green")   
+            ax.scatter(track[:,0], track[:, 1], color = "red", s=16)
+            ax.scatter(cylinder_pts[:,0], cylinder_pts[:, 1], color = "blue", s=16)   
+            if (len(ellipse_pts) > 0):
+                ax.scatter(ellipse_pts[:,0], ellipse_pts[:, 1], color = "green", s=16)   
             # if model is not None:  
             #     preds = model.predict_xy(np.linspace(0, 2 * np.pi, 100)) 
             #     ax.scatter(preds[:,0], preds[:, 1], color = "purple")  
@@ -297,7 +297,8 @@ class InverseCylinder:
                 result, valid, model = self.calculate_ellipse(track.copy())
             except: 
                 print(traceback.format_exc())
-            self.visualize_track(track, result, model)
+            if (valid):
+                self.visualize_track(track, result, model)
 
     def track_by_proximity(self):
         indecies = np.argsort(self.points[0][:,1])
