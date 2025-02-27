@@ -17,64 +17,16 @@ def atoi(text):
 def natural_keys(text):
     return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
-SEARCH_LENGTH = 100
-EPSILON = 1e-3
-
-def atoi(text):
-    return int(text) if text.isdigit() else text
-
-def natural_keys(text):
-    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
-@jit(fastmath = True)
-def calculate_angle(point1, point2, center):
-    vector1 = point1 - center
-    vector2 = point2 - center
-    return np.arccos(np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2)))
-@jit(fastmath = True)
-def calculate_angle_wurf(p1 : np.ndarray, p2 : np.ndarray, p3 : np.ndarray, p4 : np.ndarray, center : np.ndarray):
-    sin_alpha = np.sin(calculate_angle(p1, p2, center))
-    sin_beta = np.sin(calculate_angle(p2, p3, center))
-    sin_gamma = np.sin(calculate_angle(p3, p4, center))
-    return 0 if ((sin_alpha + sin_beta + sin_gamma) * sin_beta) == 0 else float(sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta))
-@jit(nopython = True, parallel = True)
-def search_support(i : int, j : int, k : int, frames : np.ndarray, center : np.ndarray, indicies : np.ndarray):
-    vals = np.zeros(len(frames[3]))
-    for l in prange(indicies.shape[0]):
-        vals[indicies[l]] = calculate_angle_wurf(frames[0][i], frames[1][j], frames[2][k], frames[3][indicies[l]], center)
-    return vals
-def find_points_for_given_point(center : np.ndarray, frames : np.ndarray, i : int):
-        best_points = np.zeros((4, 2))
-        best_val = np.inf
-        indicies = ModuleNotFoundError
-        for j in np.nonzero(
-                np.sum(((frames[1] - frames[0][i])**2), axis=1) < (SEARCH_LENGTH * SEARCH_LENGTH)
-                )[0]:
-            for k in np.nonzero(
-                np.sum(((frames[2] - frames[1][j])**2), axis=1) < (SEARCH_LENGTH * SEARCH_LENGTH)
-                )[0]:
-                vals = search_support(i, j, k, frames, center, np.nonzero(
-                np.sum(((frames[3] - frames[2][k])**2), axis=1) < (SEARCH_LENGTH * SEARCH_LENGTH)
-                )[0])
-                differences = np.abs(vals - 1/3)
-                min_val = np.argmin(differences)
-                min_wurf = vals[min_val]
-                if differences[min_val] < min(EPSILON, best_val):
-                    best_points[0] = frames[0][i]
-                    best_points[1] = frames[1][j]
-                    best_points[2] = frames[2][k]
-                    best_points[3] = frames[3][min_val]
-                    indicies = (i, j, k, min_val)
-                    best_val = differences[min_val]
-        return best_points, indicies
 class InverseCylinder:
     def __init__(self, inverse : bool = True):
         self.inverse = inverse
         self.images = []
-        for image in listdir("./inputFrames"):
-            if isfile(join("./inputFrames", image)):
+        folder = "./inputFrames"
+        for image in listdir(folder):
+            if isfile(join(folder, image)):
                 print("./inputFrames/" + image)
-                slice = np.transpose(io.imread("./inputFrames/" + image))
-                slice = ndimage.binary_erosion(slice.copy() > 0, ndimage.generate_binary_structure(2, 3))
+                slice = np.transpose(io.imread(folder + "/" + image))
+                slice = ndimage.binary_erosion(slice.copy() > 0, ndimage.generate_binary_structure(2, 2))
                 self.images.append(slice)
         self.images = np.array(self.images)
         print(self.images.shape)
@@ -97,19 +49,25 @@ class InverseCylinder:
         sin_gamma = np.sin(self.calculate_angle(p3, p4, center))
         return 0 if ((sin_alpha + sin_beta + sin_gamma) * sin_beta) == 0 else float(sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta))
 
-    def get_width(self):
+    
+    def calculate_min_max_dimension(self, dim : int):
         if self.points is None:
             self.extract_points()
-
-        max_x = 0
-        min_x = np.inf
+        max_dim = 0
+        min_dim = np.inf
         
         for i in range(len(self.points)):
             frame = self.points[i]
-            max_x = max(np.max(frame[:,0]), max_x)
-            min_x = min(np.min(frame[:,0]), min_x)
-        
+            max_dim = max(np.max(frame[:,dim]), max_dim)
+            min_dim = min(np.min(frame[:,dim]), min_dim)
+        return min_dim, max_dim
+    def get_width(self):
+        min_x, max_x = self.calculate_min_max_dimension(0)
         return max_x - min_x
+    
+    def get_center_axis(self):
+        min_x, max_x = self.calculate_min_max_dimension(0)
+        return min_x + (max_x - min_x) / 2
 
     def calculate_ellipse_equation(seld, track : np.ndarray):
         A = np.zeros((5, 5))
@@ -139,34 +97,38 @@ class InverseCylinder:
         B = np.array([-coeffs[3], -coeffs[4]])
         return np.linalg.solve(A, B)
     def calculate_ellipse(self, track : np.ndarray):
-        result = self.calculate_ellipse_equation(track)
-        center = self.calculate_ellipse_center(result)
-        valid = False
-        model = None
-        x_c = center[0]
-        y_c = center[1]
-        print("Ellipse center {}".format(center))
-        print("{} x*x + {} y*y + {} x*y + {} x + {} y = 1".format(*tuple([str(el) for el in result])))
-        if result[2]**2 - 4*result[0]*result[1] <= 0:
-
-            model = EllipseModel()
-            model.estimate(track)
-            b = model.params[3]
-            scaled_track = track
-            scaled_track[:,1] = scaled_track[:,1] * b
-            scaled_center = np.array([x_c, y_c * b])
-
-            print("Ellipse: xc = {}, yc = {}, a = {}, b = {}, theta = {}".format(*model.params))
-            print("Ellipse center {}".format(center))
-
-            for i in range(1, track.shape[0]):
-                print(self.calculate_angle(scaled_track[i-1], scaled_track[i], scaled_center))
-            valid = abs(model.params[4]) < 0.1
-        else:
-            print("Not ellipse")
-        return result, valid, model
-        
-
+        x_c = self.get_center_axis()
+        a = self.get_width() / 2
+        min_y, max_y = self.calculate_min_max_dimension(1)
+        for y_c in np.arange(min_y, max_y):
+            found_b = None
+            success = False
+            for pt in track:
+                x = pt[0]
+                y = pt[1]
+                try:
+                    b = 1 - ((a * (y-y_c))**2)/((x-x_c)**2)
+                except:
+                    b = 0
+                if (found_b is None or np.abs(b - found_b) < 10e-4) and b > 0:
+                    found_b = b
+                    success = True
+                else:
+                    success = False
+                    break
+            if success:
+                return x_c, y_c, a, b
+        return None
+    def calculate_angle_ellipse(self, track : np.ndarray, params: tuple):
+        x_c, y_c, a, b = params
+        for i in range(track.shape[0]):
+            track[i,1] = (np.sqrt(1 - ((track[i,0] - x_c)**2) / (a**2)) * b + y_c)
+        track = track -  np.tile(np.array([x_c, y_c]), (track.shape[0], 1)) 
+        track[:,1] *= a / b
+        for i in range(1, track.shape[0]):
+            pt1 = track[i - 1]
+            pt2 = track[i]
+            print(self.calculate_angle(pt1, pt2, np.array([0, 0])))
     def calculate_angle(self, point1, point2, center):
         vector1 = point1 - center
         vector2 = point2 - center
@@ -258,18 +220,37 @@ class InverseCylinder:
         ani = animation.FuncAnimation(fig=fig, func=update, frames=self.images.shape[0], interval=1500)
         plt.show()
 
-    def visualize_track(self, track, result, model):
+    def visualize_ellipse(self, params : tuple):
         fig, ax = plt.subplots()
-        x = np.linspace(400, 1500, 1500)
-        y = np.linspace(0, 1000, 1500)
+        xs = np.linspace(params[0] - params[2], params[0] + params[2], 100)
         ellipse_pts = []
-        for i in range(x.shape[0]):
-            for j in range(y.shape[0]):
-                value = result[0] * x[i]**2 + result[1] * y[j]**2 + result[2] * x[i]*y[j] + result[3] * x[i]+ result[4] * y[j] - 1
-                if(abs(value) < 10e-6):
-                    ellipse_pts.append(np.array([x[i], y[j]]))
-
+        x_c = params[0]
+        a = params[2]
+        b = params[3]
+        y_c = params[1]
+        for x in xs:
+            ellipse_pts.append(np.array([
+                x,
+                (np.sqrt(1 - ((x - x_c)**2) / (a**2)) * b + y_c)
+            ]))
+            ellipse_pts.append(np.array([
+                x,
+                (-np.sqrt(1 - ((x - x_c)**2) / (a**2)) * b + y_c)
+            ]))
         ellipse_pts = np.array(ellipse_pts)
+        def update(n):
+            ax.clear()
+            # ax.set_xlim(400, 1500)
+            # ax.set_ylim(0, 1000)
+            ax.set_title("Frame {}".format(n))
+            cylinder_pts = self.points[n]
+            ax.scatter(ellipse_pts[:,0], ellipse_pts[:, 1], color = "red", s=16)
+            ax.scatter(cylinder_pts[:,0], cylinder_pts[:, 1], color = "blue", s=16)   
+        update(0)
+        ani = animation.FuncAnimation(fig=fig, func=update, frames=self.images.shape[0], interval=1500)
+        plt.show()
+    def visualize_track(self, track):
+        fig, ax = plt.subplots()
         def update(n):
             ax.clear()
             ax.set_xlim(400, 1500)
@@ -278,29 +259,22 @@ class InverseCylinder:
             cylinder_pts = self.points[n]
             ax.scatter(track[:,0], track[:, 1], color = "red", s=16)
             ax.scatter(cylinder_pts[:,0], cylinder_pts[:, 1], color = "blue", s=16)   
-            if (len(ellipse_pts) > 0):
-                ax.scatter(ellipse_pts[:,0], ellipse_pts[:, 1], color = "green", s=16)   
-            # if model is not None:  
-            #     preds = model.predict_xy(np.linspace(0, 2 * np.pi, 100)) 
-            #     ax.scatter(preds[:,0], preds[:, 1], color = "purple")  
-
-
         update(0)
         ani = animation.FuncAnimation(fig=fig, func=update, frames=self.images.shape[0], interval=1500)
         plt.show()
-    def visualize_tracks(self):
+    def get_tracks(self):
         for file in os.listdir("./trajectories"):
             track = np.load("./trajectories/{}".format(file))
-            valid = False
-            model = None
-            try:
-                result, valid, model = self.calculate_ellipse(track.copy())
-            except: 
-                print(traceback.format_exc())
-            if (valid):
-                self.visualize_track(track, result, model)
-
+            yield track
+    def visualize_tracks(self):
+        for track in self.get_tracks():
+            self.visualize_track(track)
+    def clear_trajectories(self):
+        for file in os.listdir("./trajectories"):
+            os.remove("./trajectories/{}".format(file))
     def track_by_proximity(self):
+        self.clear_trajectories()
+        input()
         indecies = np.argsort(self.points[0][:,1])
         track = np.zeros((len(self.points), 2))
         for index in indecies:

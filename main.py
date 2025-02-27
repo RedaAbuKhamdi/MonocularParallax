@@ -10,19 +10,23 @@ from skimage.measure import EllipseModel
 if __name__ == "__main__":
     args = sys.argv[1:]
     if "direct" in args:
-        cylinder = Cylinder(4, 10, number_of_pts=60, frames_per_revolution=500, revolutions=2, invert=True)
+        cylinder = Cylinder(5, 10, number_of_pts=120, frames_per_revolution=800, revolutions=1, invert=True)
         images = cylinder.create_image(5, 5)
         cylinder.visualize(images)
         cylinder.save_image(images) 
     elif "inverse" in args:
         inverse = InverseCylinder()
-        inverse.calculate_contrasting_points()
-    elif "vis" in args:
-        inverse = InverseCylinder()
-        inverse.visualize_tracks()
+        command = input("Type a command: [visualize tracks|search ellipse]")
+        if command == "visualize tracks":
+            inverse.visualize_tracks()
+        elif command == "search ellipse":
+            for track in inverse.get_tracks():
+                params = inverse.calculate_ellipse(track)
+                if params is not None:
+                    print("For track {} found ellipse with params {}".format(track, params))
+                    inverse.calculate_angle_ellipse(track, params)
+                    inverse.visualize_ellipse(params)
+        else: 
+            inverse.track_by_proximity()
     else: 
-        inverse = InverseCylinder()
-        inverse.track_by_proximity()
-        inverse.visualize_tracks()
-        
         print("Usage: python main.py [direct|inverse]")

@@ -5,8 +5,8 @@ from matplotlib import pyplot as plt
 import matplotlib.animation as animation
 from skimage import io
 
-FRAME_WIDTH = 1000
-FRAME_HEIGHT = 1000
+FRAME_WIDTH = 1200
+FRAME_HEIGHT = 1200
 
 class Cylinder:
     def __init__(
@@ -81,8 +81,8 @@ class Cylinder:
             for j in range(adjustet_points.shape[0]):
                 result[i, np.round(adjustet_points[j, 1] * factor).astype(np.int16), np.round(adjustet_points[j, 0] * factor).astype(np.int16)] = 254
         io.imsave("cylinder.tiff", result)
-        for i in range(images.shape[0]):
-            io.imsave(f"./frames/cylinder{i}.png", result[i])
+        for i in range(10):
+            io.imsave(f"./input/cylinder{i}.png", result[i])
     def visualize(self, images : np.ndarray):
         fig, ax = plt.subplots()
         fig.set_label("Cylinder")
