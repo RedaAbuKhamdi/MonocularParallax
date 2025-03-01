@@ -128,7 +128,9 @@ class InverseCylinder:
         for i in range(1, track.shape[0]):
             pt1 = track[i - 1]
             pt2 = track[i]
-            print(self.calculate_angle(pt1, pt2, np.array([0, 0])))
+            print("angle = {}".format(
+                self.calculate_angle(pt1, pt2, np.array([0, 0]))
+            ))
     def calculate_angle(self, point1, point2, center):
         vector1 = point1 - center
         vector2 = point2 - center
@@ -272,6 +274,11 @@ class InverseCylinder:
     def clear_trajectories(self):
         for file in os.listdir("./trajectories"):
             os.remove("./trajectories/{}".format(file))
+    def wurf(self, pt1, pt2, pt3, pt4):
+        ab = np.linalg.norm(pt2 - pt1)
+        bc = np.linalg.norm(pt3 - pt2)
+        cd = np.linalg.norm(pt4 - pt3)
+        return ab*cd / ((ab + bc + cd) * bc)
     def track_by_proximity(self):
         self.clear_trajectories()
         input()
@@ -283,4 +290,11 @@ class InverseCylinder:
                 pt_distance = np.sum(((self.points[i] - track[i - 1])**2), axis=1) 
                 pt_index = np.argsort(pt_distance)[0]
                 track[i] = self.points[i][pt_index]
-            np.save("./trajectories/trajectory{}.npy".format(index), track)
+            success = True
+            for i in range(3, track.shape[0]):
+                wurf = self.wurf(track[i - 3], track[i - 2], track[i - 1], track[i])
+                if np.abs(wurf - 1/3) > 0.01:
+                    success = False
+                    break
+            if success:
+                np.save("./trajectories/trajectory{}.npy".format(index), track)
