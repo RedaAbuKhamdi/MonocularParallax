@@ -100,31 +100,42 @@ class InverseCylinder:
         x_c = self.get_center_axis()
         a = self.get_width() / 2
         min_y, max_y = self.calculate_min_max_dimension(1)
+        best_b = None
+        best_y_c = None
+        best_metric = np.inf
         for y_c in np.arange(min_y, max_y):
-            found_b = None
-            success = False
-            for pt in track:
-                x = pt[0]
-                y = pt[1]
-                try:
-                    b = 1 - ((a * (y-y_c))**2)/((x-x_c)**2)
-                except:
-                    b = 0
-                if (found_b is None or np.abs(b - found_b) < 10e-4) and b > 0:
-                    found_b = b
-                    success = True
-                else:
-                    success = False
-                    break
-            if success:
-                return x_c, y_c, a, b
+            for b in np.linspace(10, 100, 1000):
+                max_metric = 0
+                for pt in track:
+                    x = pt[0]
+                    y = pt[1]
+                    res = ((x - x_c) / a )**2 + ((y - y_c) / b)**2
+                    if abs(res - 1) > max_metric:
+                        max_metric = abs(res - 1)
+                if  max_metric < min(10e-3, best_metric):
+                    best_metric = max_metric
+                    best_b = b
+                    best_y_c = y_c
+        if best_b is not None:
+            return x_c, best_y_c, a, best_b
         return None
     def calculate_angle_ellipse(self, track : np.ndarray, params: tuple):
         x_c, y_c, a, b = params
-        for i in range(track.shape[0]):
-            track[i,1] = (np.sqrt(1 - ((track[i,0] - x_c)**2) / (a**2)) * b + y_c)
+        # for i in range(1, track.shape[0]):
+        #     if (track[i,0] - track[i - 1, 0]) > (track[i,1] - track[i - 1, 1]):
+        #         track[i,1] = (np.sqrt(1 - (((track[i,0] - x_c)**2) / (a**2)))) * b + y_c
+        #     else:
+        #         track[i,0] = (np.sqrt(1 - (((track[i,1] - y_c)**2) / (b**2)))) * a + x_c
         track = track -  np.tile(np.array([x_c, y_c]), (track.shape[0], 1)) 
         track[:,1] *= a / b
+        plt.scatter(track[:,0], track[:,1])
+        plt.scatter(0, 0)
+        xs = np.linspace(-a, a, 100)
+        ys = np.sqrt(a**2 - xs**2)
+        xs = np.concatenate((xs, xs))
+        ys = np.concatenate((ys, -ys))
+        plt.scatter(xs, ys)
+        plt.show()
         for i in range(1, track.shape[0]):
             pt1 = track[i - 1]
             pt2 = track[i]
@@ -135,73 +146,6 @@ class InverseCylinder:
         vector1 = point1 - center
         vector2 = point2 - center
         return np.arccos(np.dot(vector1, vector2) / (np.linalg.norm(vector1) * np.linalg.norm(vector2)))
-    def calculate_wurf(self, index : int, start : int = 0):
-        center = np.array([self.images[index].shape[0] / 2, self.images[index].shape[1] / 2])
-        sin_alpha = np.sin(self.calculate_angle(self.chosen_points[start][index], self.chosen_points[start - 1][index], center))
-        sin_beta = np.sin(self.calculate_angle(self.chosen_points[start - 1][index], self.chosen_points[start - 2][index], center))
-        sin_gamma = np.sin(self.calculate_angle(self.chosen_points[start - 2][index], self.chosen_points[start - 3][index], center))
-        return float(sin_alpha * sin_gamma / ((sin_alpha + sin_beta + sin_gamma) * sin_beta))
-    def track_point(self, center : np.ndarray, index : int = 0):
-        if self.points is None:
-            raise Exception("No extracted points! Run extract_points() first.")
-        if os.path.isfile("./trajectories/trajectory{}.npy".format(index)):
-            return np.load("./trajectories/trajectory{}.npy".format(index))
-        trajectory = np.zeros((self.images.shape[0], 2), dtype=np.float32)
-        first_points, indicies = find_points_for_given_point(center, self.points, index)
-        indicies = list(indicies)
-        if first_points is None:
-            raise Exception("No points found!")
-
-        trajectory[0] = first_points[0]
-        trajectory[1] = first_points[1]
-        trajectory[2] = first_points[2]
-        trajectory[3] = first_points[3]
-        
-        for i in range(4, self.images.shape[0]):
-            found_point = False
-            min_val = np.inf
-            indicies.append(None)
-            for j in np.nonzero(
-                    np.sum(((self.points[i] - trajectory[i-1])**2), axis=1) < (SEARCH_LENGTH * SEARCH_LENGTH)
-                )[0]:
-                wurf = calculate_angle_wurf(trajectory[i-3], trajectory[i-2], trajectory[i-1], self.points[i][j], center)
-                if np.abs(wurf - 1/3) < min(EPSILON, min_val):
-                    trajectory[i] = self.points[i][j]
-                    found_point = True
-                    min_val = np.abs(wurf - 1/3)
-                    indicies[i] = j
-            if not found_point:
-                raise Exception("No point was found for trajectory!")
-            
-        np.save("./trajectories/trajectory{}.npy".format(index), trajectory)
-        for i, index in enumerate(indicies):
-            self.points[i][index][0] = 0
-            self.points[i][index][1] = 0
-        return trajectory
-
-    def calculate_contrasting_points(self):
-        chosen_points = []
-
-        if self.points is None:
-            raise Exception("No extracted points! Run extract_points() first.")
-        x = self.images[0].shape[0] // 2 
-        y = self.images[0].shape[1] // 2 
-        print("x = {}, y = {}".format(x, y))
-
-        for i in tqdm(range(self.points[0].shape[0])):
-            if self.points[0][i][0] == 0 and self.points[0][i][1] == 0:
-                #print("already have {}".format(i))
-                continue
-            try:
-                chosen_points.append(
-                        self.track_point(np.array([x, y]), i)
-                    )
-                
-                print("Found track for {}".format(i))
-            except Exception as e:  
-                #print(traceback.format_exc())
-                pass
-        return chosen_points
     def visualize(self, chosen_points = []):
         fig, ax = plt.subplots()
         print(chosen_points)
@@ -222,7 +166,7 @@ class InverseCylinder:
         ani = animation.FuncAnimation(fig=fig, func=update, frames=self.images.shape[0], interval=1500)
         plt.show()
 
-    def visualize_ellipse(self, params : tuple):
+    def visualize_ellipse(self, params : tuple, track : np.ndarray):
         fig, ax = plt.subplots()
         xs = np.linspace(params[0] - params[2], params[0] + params[2], 100)
         ellipse_pts = []
@@ -248,6 +192,7 @@ class InverseCylinder:
             cylinder_pts = self.points[n]
             ax.scatter(ellipse_pts[:,0], ellipse_pts[:, 1], color = "red", s=16)
             ax.scatter(cylinder_pts[:,0], cylinder_pts[:, 1], color = "blue", s=16)   
+            ax.scatter(track[n,0], track[n, 1], color = "green", s=16)   
         update(0)
         ani = animation.FuncAnimation(fig=fig, func=update, frames=self.images.shape[0], interval=1500)
         plt.show()
@@ -291,10 +236,10 @@ class InverseCylinder:
                 pt_index = np.argsort(pt_distance)[0]
                 track[i] = self.points[i][pt_index]
             success = True
-            for i in range(3, track.shape[0]):
-                wurf = self.wurf(track[i - 3], track[i - 2], track[i - 1], track[i])
-                if np.abs(wurf - 1/3) > 0.01:
-                    success = False
-                    break
+            # for i in range(3, track.shape[0]):
+            #     wurf = self.wurf(track[i - 3], track[i - 2], track[i - 1], track[i])
+            #     if np.abs(wurf - 1/3) > 0.01:
+            #         success = False
+            #         break
             if success:
                 np.save("./trajectories/trajectory{}.npy".format(index), track)

@@ -5,6 +5,7 @@ import estimator
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.measure import EllipseModel
+from tqdm import tqdm
 
 
 if __name__ == "__main__":
@@ -20,12 +21,12 @@ if __name__ == "__main__":
         if command == "visualize tracks":
             inverse.visualize_tracks()
         elif command == "search ellipse":
-            for track in inverse.get_tracks():
+            for track in tqdm(inverse.get_tracks()):
                 params = inverse.calculate_ellipse(track)
                 if params is not None:
                     print("For track {} found ellipse with params {}".format(track, params))
                     inverse.calculate_angle_ellipse(track, params)
-                    inverse.visualize_ellipse(params)
+                    inverse.visualize_ellipse(params, track)
         else: 
             inverse.track_by_proximity()
     else: 
